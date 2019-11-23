@@ -1,7 +1,7 @@
 package literoute
 
 import (
-	"context"
+	context0 "context"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -103,21 +103,27 @@ func (r *route) parse(rw http.ResponseWriter, req *http.Request) bool {
 			if len(req.URL.Path) >= r.Size {
 				if req.URL.Path[:r.Size] == r.Path {
 					req.URL.Path = req.URL.Path[r.Size:]
-					r.Handle(newSimpleContext(rw, req))
+					ctx := acquireContext(rw, req)
+					r.Handle(ctx)
+					releaseContext(ctx)
 					return true
 				}
 			}
 		}
 
 		if ok, vars := r.matchAndParse(req); ok {
-			ctx := context.WithValue(req.Context(), contextKey, vars)
-			newReq := req.WithContext(ctx)
-			r.Handle(newSimpleContext(rw, newReq))
+			ctx0 := context0.WithValue(req.Context(), contextKey, vars)
+			newReq := req.WithContext(ctx0)
+			ctx := acquireContext(rw, newReq)
+			r.Handle(ctx)
+			releaseContext(ctx)
 			return true
 		}
 	}
 	if req.URL.Path == r.Path {
-		r.Handle(newSimpleContext(rw, req))
+		ctx := acquireContext(rw, req)
+		r.Handle(ctx)
+		releaseContext(ctx)
 		return true
 	}
 	return false
@@ -127,12 +133,6 @@ func (r *route) matchRawTokens(ss *[]string) bool {
 	if len(*ss) >= r.Token.Size {
 		for _, v := range r.Token.raw {
 			return (*ss)[v] == r.Token.Tokens[v]
-			//if (*ss)[v] != r.Token.Tokens[v] {
-			//	if r.Atts&WC != 0 && r.wildPos == i {
-			//		return true
-			//	}
-			//	return false
-			//}
 		}
 		return true
 	}
