@@ -5,7 +5,11 @@ import (
 )
 
 func New() (mux *LiteMux) {
-
+	mux = &LiteMux{
+		routes:     make(map[string][]*route),
+		validators: make(map[string]Validator),
+	}
+	mux.rootRouter = newRouter("/", mux)
 	return
 }
 
@@ -20,7 +24,6 @@ type LiteMux struct {
 	routes     map[string][]*route
 	notFound   HandleFunc
 	validators map[string]Validator
-	Serve      func(rw http.ResponseWriter, req *http.Request)
 }
 
 func (m *LiteMux) RegisterValidator(name string, validator Validator) {
@@ -151,4 +154,8 @@ func (m *LiteMux) Connect(path string, handle HandleFunc) {
 
 func (m *LiteMux) NotFound(handle HandleFunc) {
 	m.notFound = handle
+}
+
+func (m *LiteMux) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	m.serve(rw, req)
 }
