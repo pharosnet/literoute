@@ -1,8 +1,10 @@
 package literoute
 
 import (
+	"bytes"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"github.com/pharosnet/literoute/schema"
 	"io"
@@ -26,7 +28,8 @@ func newSimpleContext(rw http.ResponseWriter, r *http.Request) (ctx Context) {
 
 type Context interface {
 	Request() (r *http.Request)
-	ResponseWriter() (w http.ResponseWriter)
+	ResponseWriter() ResponseWriter
+	ResetResponseWriter(ResponseWriter)
 	Method() string
 	Path() string
 	RequestPath(escape bool) string
@@ -151,6 +154,8 @@ type Context interface {
 	IsPushing() (*ResponsePusher, bool)
 }
 
+var DefaultJSONOptions = JSON{}
+
 type JSON struct {
 	StreamingJSON bool
 	UnescapeHTML  bool
@@ -158,10 +163,14 @@ type JSON struct {
 	Prefix        string
 }
 
+var DefaultJSONPOptions = JSONP{}
+
 type JSONP struct {
 	Indent   string
 	Callback string
 }
+
+var DefaultXMLOptions = XML{}
 
 type XML struct {
 	Indent string
@@ -187,9 +196,9 @@ var Gzip = func(ctx Context) {
 type Map = map[string]interface{}
 
 type context struct {
-	id uint64
-	writer ResponseWriter
-	request *http.Request
+	id               uint64
+	writer           ResponseWriter
+	request          *http.Request
 	currentRouteName string
 
 	params RequestParams  // url named parameters.
@@ -314,7 +323,6 @@ func (ctx *context) AbsoluteURI(s string) string {
 
 	return s
 }
-
 
 func (ctx *context) IsAjax() bool {
 	return ctx.GetHeader("X-Requested-With") == "XMLHttpRequest"
@@ -508,8 +516,6 @@ func (ctx *context) URLParams() map[string]string {
 
 	return values
 }
-
-
 
 func (ctx *context) FormValue(name string) string {
 	return ctx.FormValueDefault(name, "")
@@ -720,7 +726,6 @@ func (ctx *context) ReadXML(outPtr interface{}) error {
 	return ctx.UnmarshalBody(outPtr, UnMarshallerFunc(xml.Unmarshal))
 }
 
-
 func (ctx *context) ReadForm(formObject interface{}) error {
 	values := ctx.FormValues()
 	if len(values) == 0 {
@@ -743,6 +748,10 @@ func (ctx *context) Write(rawBody []byte) (int, error) {
 	return ctx.writer.Write(rawBody)
 }
 
+func (ctx *context) Writef(format string, a ...interface{}) (n int, err error) {
+	return ctx.writer.Writef(format, a...)
+}
+
 func (ctx *context) WriteString(body string) (n int, err error) {
 	return ctx.writer.WriteString(body)
 }
@@ -751,5 +760,241 @@ func (ctx *context) SetLastModified(modtime time.Time) {
 	if !IsZeroTime(modtime) {
 		ctx.Header(LastModifiedHeaderKey, FormatTimeRFC3339Nano(ctx, modtime.UTC()))
 	}
+}
+
+func (ctx *context) CheckIfModifiedSince(modifyTime time.Time) (bool, error) {
+	if method := ctx.Method(); method != http.MethodGet && method != http.MethodHead {
+		return false, fmt.Errorf("method: %w", ErrPreconditionFailed)
+	}
+	ims := ctx.GetHeader(IfModifiedSinceHeaderKey)
+	if ims == "" || IsZeroTime(modifyTime) {
+		return false, fmt.Errorf("zero time: %w", ErrPreconditionFailed)
+	}
+	t, err := ParseTimeRFC3339Nano(ctx, ims)
+	if err != nil {
+		return false, err
+	}
+	// sub-second precision, so
+	// use mtime < t+1s instead of mtime <= t to check for unmodified.
+	if modifyTime.UTC().Before(t.Add(1 * time.Second)) {
+		return false, nil
+	}
+	return true, nil
+}
+
+func (ctx *context) WriteNotModified() {
+	h := ctx.ResponseWriter().Header()
+	delete(h, ContentTypeHeaderKey)
+	delete(h, ContentLengthHeaderKey)
+	if h.Get(ETagHeaderKey) != "" {
+		delete(h, LastModifiedHeaderKey)
+	}
+	ctx.StatusCode(http.StatusNotModified)
+}
+
+func (ctx *context) WriteWithExpiration(body []byte, modifyTime time.Time) (int, error) {
+	if modified, err := ctx.CheckIfModifiedSince(modifyTime); !modified && err == nil {
+		ctx.WriteNotModified()
+		return 0, nil
+	}
+
+	ctx.SetLastModified(modifyTime)
+	return ctx.writer.Write(body)
+}
+
+func (ctx *context) StreamWriter(writer func(w io.Writer) bool) {
+	w := ctx.writer
+	notifyClosed := w.CloseNotify()
+	for {
+		select {
+		case <-notifyClosed:
+			return
+		default:
+			shouldContinue := writer(w)
+			w.Flush()
+			if !shouldContinue {
+				return
+			}
+		}
+	}
+}
+
+func (ctx *context) ClientSupportsGzip() bool {
+	if h := ctx.GetHeader(AcceptEncodingHeaderKey); h != "" {
+		for _, v := range strings.Split(h, ";") {
+			if strings.Contains(v, GzipHeaderValue) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (ctx *context) WriteGzip(b []byte) (int, error) {
+	if !ctx.ClientSupportsGzip() {
+		return 0, ErrGzipNotSupported
+	}
+
+	return ctx.GzipResponseWriter().Write(b)
+}
+
+func (ctx *context) TryWriteGzip(b []byte) (int, error) {
+	n, err := ctx.WriteGzip(b)
+	if err != nil {
+		if errors.Is(err, ErrGzipNotSupported) {
+			return ctx.writer.Write(b)
+		}
+	}
+	return n, err
+}
+
+func (ctx *context) GzipResponseWriter() *GzipResponseWriter {
+	if gzipResWriter, ok := ctx.writer.(*GzipResponseWriter); ok {
+		return gzipResWriter
+	}
+	gzipResWriter := acquireGzipResponseWriter()
+	gzipResWriter.BeginGzipResponse(ctx.writer)
+	ctx.ResetResponseWriter(gzipResWriter)
+	return gzipResWriter
+}
+
+func (ctx *context) ResetResponseWriter(newResponseWriter ResponseWriter) {
+	ctx.writer = newResponseWriter
+}
+
+func (ctx *context) Gzip(enable bool) {
+	if enable {
+		if ctx.ClientSupportsGzip() {
+			_ = ctx.GzipResponseWriter()
+		}
+	} else {
+		if gzipResWriter, ok := ctx.writer.(*GzipResponseWriter); ok {
+			gzipResWriter.Disable()
+		}
+	}
+}
+
+func (ctx *context) Binary(data []byte) (int, error) {
+	ctx.ContentType(ContentBinaryHeaderValue)
+	return ctx.Write(data)
+}
+
+func (ctx *context) Text(format string, args ...interface{}) (int, error) {
+	ctx.ContentType(ContentTextHeaderValue)
+	return ctx.Writef(format, args...)
+}
+
+func (ctx *context) HTML(format string, args ...interface{}) (int, error) {
+	ctx.ContentType(ContentHTMLHeaderValue)
+	return ctx.Writef(format, args...)
+}
+
+func WriteJSON(writer io.Writer, v interface{}, options JSON) (int, error) {
+	var (
+		result []byte
+		err    error
+	)
+
+	if indent := options.Indent; indent != "" {
+		marshalIndent := json.MarshalIndent
+
+		result, err = marshalIndent(v, "", indent)
+		result = append(result, newLineB...)
+	} else {
+		marshal := json.Marshal
+
+		result, err = marshal(v)
+	}
+
+	if err != nil {
+		return 0, err
+	}
+
+	if options.UnescapeHTML {
+		result = bytes.Replace(result, ltHex, lt, -1)
+		result = bytes.Replace(result, gtHex, gt, -1)
+		result = bytes.Replace(result, andHex, and, -1)
+	}
+
+	if prefix := options.Prefix; prefix != "" {
+		result = append([]byte(prefix), result...)
+	}
+
+	return writer.Write(result)
+}
+
+func (ctx *context) JSON(v interface{}, opts ...JSON) (n int, err error) {
+	options := DefaultJSONOptions
+
+	if len(opts) > 0 {
+		options = opts[0]
+	}
+
+	ctx.ContentType(ContentJSONHeaderValue)
+
+	if options.StreamingJSON {
+
+		enc := json.NewEncoder(ctx.writer)
+		enc.SetEscapeHTML(!options.UnescapeHTML)
+		enc.SetIndent(options.Prefix, options.Indent)
+		err = enc.Encode(v)
+
+		if err != nil {
+			ctx.StatusCode(http.StatusInternalServerError)
+			return 0, err
+		}
+		return ctx.writer.Written(), err
+	}
+
+	n, err = WriteJSON(ctx.writer, v, options)
+	if err != nil {
+		ctx.StatusCode(http.StatusInternalServerError)
+		return 0, err
+	}
+
+	return n, err
+}
+
+func WriteJSONP(writer io.Writer, v interface{}, options JSONP) (int, error) {
+	if callback := options.Callback; callback != "" {
+		_, _ = writer.Write([]byte(callback + "("))
+		defer func() {
+			_, _ = writer.Write(finishCallbackB)
+		}()
+	}
+
+	if indent := options.Indent; indent != "" {
+
+		result, err := json.MarshalIndent(v, "", indent)
+		if err != nil {
+			return 0, err
+		}
+		result = append(result, newLineB...)
+		return writer.Write(result)
+	}
+
+	result, err := json.Marshal(v)
+	if err != nil {
+		return 0, err
+	}
+	return writer.Write(result)
+}
+
+func (ctx *context) JSONP(v interface{}, opts ...JSONP) (int, error) {
+	options := DefaultJSONPOptions
+
+	if len(opts) > 0 {
+		options = opts[0]
+	}
+
+	ctx.ContentType(ContentJavascriptHeaderValue)
+
+	n, err := WriteJSONP(ctx.writer, v, options)
+	if err != nil {
+		ctx.StatusCode(http.StatusInternalServerError)
+		return 0, err
+	}
+
+	return n, err
 }
 

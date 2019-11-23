@@ -42,14 +42,19 @@ var (
 	gtHex = []byte("\\u003e")
 	gt    = []byte(">")
 
-	andHex        = []byte("\\u0026")
-	and           = []byte("&")
+	andHex = []byte("\\u0026")
+	and    = []byte("&")
 
 	isMobileRegex = regexp.MustCompile(`(?i)(android|avantgo|blackberry|bolt|boost|cricket|docomo|fone|hiptop|mini|mobi|palm|phone|pie|tablet|up\.browser|up\.link|webos|wos)`)
+
+	finishCallbackB = []byte(");")
 )
 
 var ErrNotFound = errors.New("not found")
 
+var ErrPreconditionFailed = errors.New("precondition failed")
+
+var ErrGzipNotSupported = errors.New("client does not support gzip compression")
 
 type UnMarshallerFunc func(data []byte, outPtr interface{}) error
 
