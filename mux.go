@@ -2,7 +2,6 @@ package literoute
 
 import (
 	"net/http"
-	"strings"
 )
 
 func New() (mux *LiteMux) {
@@ -17,16 +16,11 @@ var (
 )
 
 type LiteMux struct {
+	rootRouter *Router
 	routes     map[string][]*route
-	prefix     string
-	notFound   http.Handler
+	notFound   HandleFunc
 	validators map[string]Validator
 	Serve      func(rw http.ResponseWriter, req *http.Request)
-}
-
-func (m *LiteMux) Prefix(p string) *LiteMux {
-	m.prefix = strings.TrimSuffix(p, "/")
-	return m
 }
 
 func (m *LiteMux) RegisterValidator(name string, validator Validator) {
@@ -44,8 +38,8 @@ func (m *LiteMux) parse(rw http.ResponseWriter, req *http.Request) bool {
 		}
 	}
 
-	if req.Method == "HEAD" {
-		for _, r := range m.routes["GET"] {
+	if req.Method == http.MethodHead {
+		for _, r := range m.routes[http.MethodGet] {
 			ok := r.parse(rw, req)
 			if ok {
 				return true
@@ -60,7 +54,7 @@ func (m *LiteMux) staticRoute(rw http.ResponseWriter, req *http.Request) bool {
 	for _, s := range m.routes[static] {
 		if len(req.URL.Path) >= s.Size {
 			if req.URL.Path[:s.Size] == s.Path {
-				s.Handler.ServeHTTP(rw, req)
+				s.Handle(newSimpleContext(rw, req))
 				return true
 			}
 		}
@@ -95,9 +89,9 @@ func (m *LiteMux) otherMethods(rw http.ResponseWriter, req *http.Request) bool {
 	return false
 }
 
-func (m *LiteMux) HandleNotFound(rw http.ResponseWriter, req *http.Request) {
+func (m *LiteMux) handleNotFound(rw http.ResponseWriter, req *http.Request) {
 	if m.notFound != nil {
-		m.notFound.ServeHTTP(rw, req)
+		m.notFound(newSimpleContext(rw, req))
 	} else {
 		http.NotFound(rw, req)
 	}
@@ -108,9 +102,53 @@ func (m *LiteMux) serve(rw http.ResponseWriter, req *http.Request) {
 		if !m.staticRoute(rw, req) {
 			if !m.validate(rw, req) {
 				if !m.otherMethods(rw, req) {
-					m.HandleNotFound(rw, req)
+					m.handleNotFound(rw, req)
 				}
 			}
 		}
 	}
+}
+
+func (m *LiteMux) Party(path string) *Router {
+	return newRouter(path, m)
+}
+
+func (m *LiteMux) Get(path string, handle HandleFunc) {
+	m.rootRouter.Get(path, handle)
+}
+
+func (m *LiteMux) Post(path string, handle HandleFunc) {
+	m.rootRouter.Post(path, handle)
+}
+
+func (m *LiteMux) Put(path string, handle HandleFunc) {
+	m.rootRouter.Put(path, handle)
+}
+
+func (m *LiteMux) Delete(path string, handle HandleFunc) {
+	m.rootRouter.Delete(path, handle)
+}
+
+func (m *LiteMux) Head(path string, handle HandleFunc) {
+	m.rootRouter.Head(path, handle)
+}
+
+func (m *LiteMux) Patch(path string, handle HandleFunc) {
+	m.rootRouter.Patch(path, handle)
+}
+
+func (m *LiteMux) Options(path string, handle HandleFunc) {
+	m.rootRouter.Options(path, handle)
+}
+
+func (m *LiteMux) Trace(path string, handle HandleFunc) {
+	m.rootRouter.Trace(path, handle)
+}
+
+func (m *LiteMux) Connect(path string, handle HandleFunc) {
+	m.rootRouter.Connect(path, handle)
+}
+
+func (m *LiteMux) NotFound(handle HandleFunc) {
+	m.notFound = handle
 }

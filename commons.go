@@ -10,3 +10,11 @@ func cleanURL(url *string) {
 		}
 	}
 }
+
+func valid(path string) bool {
+	pathLength := len(path)
+	if pathLength > 1 && path[pathLength-1:] == "/" {
+		return false
+	}
+	return true
+}

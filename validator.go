@@ -25,7 +25,7 @@ func containsValidators(path string) []validatorInfo {
 				validators = append(validators, validatorInfo{
 					start: pos,
 					end:   len(path),
-					name:  path[pos:len(path)],
+					name:  path[pos:],
 				})
 			} else {
 				validators = append(validators, validatorInfo{

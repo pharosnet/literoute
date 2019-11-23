@@ -20,8 +20,8 @@ type token struct {
 	Size   int
 }
 
-func newRoute(mux *LiteMux, url string, h http.Handler) *route {
-	r := &route{Path: url, Handler: h, mux: mux}
+func newRoute(mux *LiteMux, url string, h HandleFunc) *route {
+	r := &route{Path: url, Handle: h, mux: mux}
 	r.save()
 	return r
 }
@@ -36,7 +36,7 @@ type route struct {
 	Pattern    map[int]string
 	Compile    map[int]*regexp.Regexp
 	Tag        map[int]string
-	Handler    http.Handler
+	Handle     HandleFunc
 	mux        *LiteMux
 	validators map[string][]string
 }
@@ -84,7 +84,7 @@ func (r *route) matchAndParse(req *http.Request) (bool, map[string]string) {
 			for k, v := range r.Pattern {
 				if validators := r.validators[v]; validators != nil {
 					for _, validatorName := range validators {
-						if !(*r.mux).Validators[validatorName].Validate(ss[k]) {
+						if !(*r.mux).validators[validatorName].Validate(ss[k]) {
 							return false, nil
 						}
 					}
@@ -103,7 +103,7 @@ func (r *route) parse(rw http.ResponseWriter, req *http.Request) bool {
 			if len(req.URL.Path) >= r.Size {
 				if req.URL.Path[:r.Size] == r.Path {
 					req.URL.Path = req.URL.Path[r.Size:]
-					r.Handler.ServeHTTP(rw, req)
+					r.Handle(newSimpleContext(rw, req))
 					return true
 				}
 			}
@@ -112,12 +112,12 @@ func (r *route) parse(rw http.ResponseWriter, req *http.Request) bool {
 		if ok, vars := r.matchAndParse(req); ok {
 			ctx := context.WithValue(req.Context(), contextKey, vars)
 			newReq := req.WithContext(ctx)
-			r.Handler.ServeHTTP(rw, newReq)
+			r.Handle(newSimpleContext(rw, newReq))
 			return true
 		}
 	}
 	if req.URL.Path == r.Path {
-		r.Handler.ServeHTTP(rw, req)
+		r.Handle(newSimpleContext(rw, req))
 		return true
 	}
 	return false
