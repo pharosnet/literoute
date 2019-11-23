@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-
 func newSimpleContext(rw http.ResponseWriter, r *http.Request) (ctx Context) {
 
 	return
@@ -74,12 +73,9 @@ type Context interface {
 	FormFile(key string) (multipart.File, *multipart.FileHeader, error)
 	UploadFormFiles(destDirectory string, before ...func(Context, *multipart.FileHeader)) (n int64, err error)
 
-
 	NotFound()
 
-
 	SetMaxRequestBodySize(limitOverBytes int64)
-
 
 	GetBody() ([]byte, error)
 
@@ -96,7 +92,6 @@ type Context interface {
 
 	WriteString(body string) (int, error)
 
-
 	SetLastModified(modifyTime time.Time)
 
 	CheckIfModifiedSince(modifyTime time.Time) (bool, error)
@@ -106,7 +101,6 @@ type Context interface {
 	WriteWithExpiration(body []byte, modifyTime time.Time) (int, error)
 
 	StreamWriter(writer func(w io.Writer) bool)
-
 
 	ClientSupportsGzip() bool
 
@@ -118,8 +112,6 @@ type Context interface {
 
 	Gzip(enable bool)
 
-
-
 	Binary(data []byte) (int, error)
 	Text(format string, args ...interface{}) (int, error)
 	HTML(format string, args ...interface{}) (int, error)
@@ -127,16 +119,11 @@ type Context interface {
 	JSONP(v interface{}, options ...JSONP) (int, error)
 	XML(v interface{}, options ...XML) (int, error)
 
-
-
-
-
 	ServeContent(content io.ReadSeeker, filename string, modifyTime time.Time, gzipCompression bool) error
 
 	ServeFile(filename string, gzipCompression bool) error
 
 	SendFile(filename string, destinationName string) error
-
 
 	SetCookie(cookie *http.Cookie, options ...CookieOption)
 
@@ -147,23 +134,20 @@ type Context interface {
 	RemoveCookie(name string, options ...CookieOption)
 	VisitAllCookies(visitor func(name string, value string))
 
-
 	MaxAge() int64
 
+	Push()
 
-	Record()
+	Pusher() *ResponsePusher
 
-	Recorder() *ResponseRecorder
-
-	IsRecording() (*ResponseRecorder, bool)
-
+	IsPushing() (*ResponsePusher, bool)
 }
 
 type JSON struct {
 	StreamingJSON bool
-	UnescapeHTML bool
-	Indent       string
-	Prefix       string
+	UnescapeHTML  bool
+	Indent        string
+	Prefix        string
 }
 
 type JSONP struct {
@@ -177,5 +161,5 @@ type XML struct {
 }
 
 type Unmarshaller interface {
-Unmarshal(data []byte, outPtr interface{}) error
+	Unmarshal(data []byte, outPtr interface{}) error
 }
