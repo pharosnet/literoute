@@ -4,18 +4,6 @@ type Validator interface {
 	Validate(string) bool
 }
 
-type validatorFunc struct {
-	validateFunc func(string) bool
-}
-
-func newValidatorFunc(v func(string) bool) validatorFunc {
-	return validatorFunc{validateFunc: v}
-}
-
-func (v validatorFunc) Validate(s string) bool {
-	return v.validateFunc(s)
-}
-
 type validatorInfo struct {
 	start int
 	end   int
@@ -51,4 +39,3 @@ func containsValidators(path string) []validatorInfo {
 	}
 	return nil
 }
-

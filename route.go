@@ -8,10 +8,9 @@ import (
 	"strings"
 )
 
-
 const (
 	tokenParam = 2
-	tokenSub = 4
+	tokenSub   = 4
 	contextKey = "a_lite_route"
 )
 
@@ -28,10 +27,10 @@ func newRoute(mux *LiteMux, url string, h http.Handler) *route {
 }
 
 type route struct {
-	Path       string
-	Method     string
-	Size       int
-	Attrs       int
+	Path   string
+	Method string
+	Size   int
+	Attrs  int
 	//wildPos    int
 	Token      token
 	Pattern    map[int]string
@@ -63,7 +62,7 @@ func (r *route) save() {
 				}
 				r.Pattern[i] = s
 				r.Attrs |= tokenParam
-			} else{
+			} else {
 				r.Token.raw = append(r.Token.raw, i)
 			}
 		}
