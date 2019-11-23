@@ -10,7 +10,7 @@ type xmlMapEntry struct {
 	Value   interface{} `xml:",chardata"`
 }
 
-func XMLMap(elementName string, v Map) xml.Marshaler {
+func XMLMap(elementName string, v map[string]interface{}) xml.Marshaler {
 	return xmlMap{
 		entries:     v,
 		elementName: elementName,
@@ -18,7 +18,7 @@ func XMLMap(elementName string, v Map) xml.Marshaler {
 }
 
 type xmlMap struct {
-	entries     Map
+	entries     map[string]interface{}
 	elementName string
 }
 

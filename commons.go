@@ -5,6 +5,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -77,22 +78,16 @@ func GetForm(r *http.Request, postMaxMemory int64, resetBody bool) (form map[str
 	var bodyCopy []byte
 
 	if resetBody {
-		// on POST, PUT and PATCH it will read the form values from request body otherwise from URL queries.
 		if m := r.Method; m == "POST" || m == "PUT" || m == "PATCH" {
 			bodyCopy, _ = GetBody(r, resetBody)
 			if len(bodyCopy) == 0 {
 				return nil, false
 			}
-			// r.Body = ioutil.NopCloser(io.TeeReader(r.Body, buf))
 		} else {
 			resetBody = false
 		}
 	}
 
-	// ParseMultipartForm calls `request.ParseForm` automatically
-	// therefore we don't need to call it here, although it doesn't hurt.
-	// After one call to ParseMultipartForm or ParseForm,
-	// subsequent calls have no effect, are idempotent.
 	err := r.ParseMultipartForm(postMaxMemory)
 	if resetBody {
 		r.Body = ioutil.NopCloser(bytes.NewBuffer(bodyCopy))
@@ -179,4 +174,18 @@ var FormatTimeRFC3339 = func(ctx Context, t time.Time) string {
 
 var FormatTimeRFC3339Nano = func(ctx Context, t time.Time) string {
 	return t.Format(time.RFC3339Nano)
+}
+
+func parseHeader(headerValue string) []string {
+	in := strings.Split(headerValue, ",")
+	out := make([]string, 0, len(in))
+
+	for _, value := range in {
+		v := strings.TrimSpace(strings.Split(value, ";")[0])
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+
+	return out
 }

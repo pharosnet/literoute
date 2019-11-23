@@ -57,7 +57,9 @@ func (m *LiteMux) staticRoute(rw http.ResponseWriter, req *http.Request) bool {
 	for _, s := range m.routes[static] {
 		if len(req.URL.Path) >= s.Size {
 			if req.URL.Path[:s.Size] == s.Path {
-				s.Handle(newSimpleContext(rw, req))
+				ctx := acquireContext(rw, req)
+				s.Handle(ctx)
+				releaseContext(ctx)
 				return true
 			}
 		}
@@ -94,7 +96,9 @@ func (m *LiteMux) otherMethods(rw http.ResponseWriter, req *http.Request) bool {
 
 func (m *LiteMux) handleNotFound(rw http.ResponseWriter, req *http.Request) {
 	if m.notFound != nil {
-		m.notFound(newSimpleContext(rw, req))
+		ctx := acquireContext(rw, req)
+		m.notFound(ctx)
+		releaseContext(ctx)
 	} else {
 		http.NotFound(rw, req)
 	}

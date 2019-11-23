@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+type HandleFunc func(ctx Context)
+
 type Router struct {
 	prefix string
 	mux    *LiteMux

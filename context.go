@@ -18,13 +18,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 )
-
-func newSimpleContext(rw http.ResponseWriter, r *http.Request) (ctx Context) {
-
-	return
-}
 
 type Context interface {
 	Request() (r *http.Request)
@@ -35,7 +32,7 @@ type Context interface {
 	RequestPath(escape bool) string
 	Host() string
 	FullRequestURI() string
-	RemoteAddr() string
+	RemoteAddr(headerNames ...string) string
 	GetHeader(name string) string
 
 	IsAjax() bool
@@ -53,6 +50,11 @@ type Context interface {
 	AbsoluteURI(s string) string
 
 	Redirect(urlToRedirect string, statusHeader ...int)
+
+	Param(key string) string
+	ParamInt(key string) (int, error)
+	ParamInt32(key string) (int32, error)
+	ParamInt64(key string) (int64, error)
 
 	URLParamExists(name string) bool
 	URLParamDefault(name string, def string) string
@@ -152,6 +154,9 @@ type Context interface {
 	Pusher() *ResponsePusher
 
 	IsPushing() (*ResponsePusher, bool)
+
+	BeginRequest(w http.ResponseWriter, r *http.Request)
+	End()
 }
 
 var DefaultJSONOptions = JSON{}
@@ -183,30 +188,56 @@ type Unmarshaller interface {
 
 var _ Context = (*context)(nil)
 
-var LimitRequestBodySize = func(maxRequestBodySizeBytes int64) HandleFunc {
-	return func(ctx Context) {
-		ctx.SetMaxRequestBodySize(maxRequestBodySizeBytes)
+var contextPool = sync.Pool{New: func() interface{} { return newContext() }}
+
+func acquireContext(w http.ResponseWriter, r *http.Request) Context {
+	ctx := contextPool.Get().(Context)
+	ctx.BeginRequest(w, r)
+	return ctx
+}
+
+func releaseContext(ctx Context) {
+	ctx.End()
+	contextPool.Put(ctx)
+}
+
+func newContext() (ctx Context) {
+	ctx = &context{
+		id: LastCapturedContextID(),
 	}
+	return
 }
-
-var Gzip = func(ctx Context) {
-	ctx.Gzip(true)
-}
-
-type Map = map[string]interface{}
 
 type context struct {
-	id               uint64
-	writer           ResponseWriter
-	request          *http.Request
-	currentRouteName string
+	id      uint64
+	writer  ResponseWriter
+	request *http.Request
+}
 
-	params RequestParams  // url named parameters.
-	values memstore.Store // generic storage, middleware communication.
+func (ctx *context) String() string {
+	if ctx.id == 0 {
+		forward := atomic.AddUint64(&lastCapturedContextID, 1)
+		ctx.id = forward
+	}
 
-	handlers Handlers
-	// the current position of the handler's chain
-	currentHandlerIndex int
+	return fmt.Sprintf("[%d] %s ▶ %s:%s",
+		ctx.id, ctx.RemoteAddr(), ctx.Method(), ctx.Request().RequestURI)
+}
+
+func (ctx *context) BeginRequest(w http.ResponseWriter, r *http.Request) () {
+	ctx.writer = asResponseWriter(w)
+	ctx.request = r
+}
+
+func (ctx *context) End() {
+	ctx.writer.FlushResponse()
+	ctx.writer.EndResponse()
+}
+
+var lastCapturedContextID uint64
+
+func LastCapturedContextID() uint64 {
+	return atomic.LoadUint64(&lastCapturedContextID)
 }
 
 func (ctx *context) ResponseWriter() ResponseWriter {
@@ -240,24 +271,20 @@ func (ctx *context) FullRequestURI() string {
 	return ctx.AbsoluteURI(ctx.Path())
 }
 
-func (ctx *context) RemoteAddr() string {
-	remoteHeaders := ctx.Application().ConfigurationReadOnly().GetRemoteAddrHeaders()
+func (ctx *context) RemoteAddr(headerNames ...string) string {
 
-	for headerName, enabled := range remoteHeaders {
-		if enabled {
-			headerValue := ctx.GetHeader(headerName)
-			// exception needed for 'X-Forwarded-For' only , if enabled.
-			if headerName == xForwardedForHeaderKey {
-				idx := strings.IndexByte(headerValue, ',')
-				if idx >= 0 {
-					headerValue = headerValue[0:idx]
-				}
+	for _, headerName := range headerNames {
+		headerValue := ctx.GetHeader(headerName)
+		if headerName == xForwardedForHeaderKey {
+			idx := strings.IndexByte(headerValue, ',')
+			if idx >= 0 {
+				headerValue = headerValue[0:idx]
 			}
+		}
 
-			realIP := strings.TrimSpace(headerValue)
-			if realIP != "" {
-				return realIP
-			}
+		realIP := strings.TrimSpace(headerValue)
+		if realIP != "" {
+			return realIP
 		}
 	}
 
@@ -395,6 +422,43 @@ func (ctx *context) GetStatusCode() int {
 	return ctx.writer.StatusCode()
 }
 
+func (ctx *context) getAllParams() map[string]string {
+	values, ok := ctx.request.Context().Value(contextKey).(map[string]string)
+	if ok {
+		return values
+	}
+
+	return map[string]string{}
+}
+
+func (ctx *context) Param(key string) string {
+	return ctx.getAllParams()[key]
+}
+
+func (ctx *context) ParamInt(key string) (int, error) {
+	n, err := strconv.Atoi(ctx.Param(key))
+	if err != nil {
+		return -1, err
+	}
+	return n, nil
+}
+
+func (ctx *context) ParamInt32(key string) (int32, error) {
+	n, err := strconv.ParseInt(ctx.Param(key), 10, 32)
+	if err != nil {
+		return -1, err
+	}
+	return int32(n), nil
+}
+
+func (ctx *context) ParamInt64(key string) (int64, error) {
+	n, err := strconv.ParseInt(ctx.Param(key), 10, 64)
+	if err != nil {
+		return -1, err
+	}
+	return n, nil
+}
+
 func (ctx *context) URLParamExists(name string) bool {
 	if q := ctx.request.URL.Query(); q != nil {
 		_, exists := q[name]
@@ -527,7 +591,7 @@ func (ctx *context) FormValues() map[string][]string {
 }
 
 func (ctx *context) form() (form map[string][]string, found bool) {
-	return GetForm(ctx.request, ctx.Application().ConfigurationReadOnly().GetPostMaxMemory(), ctx.Application().ConfigurationReadOnly().GetDisableBodyConsumptionOnUnmarshal())
+	return GetForm(ctx.request, DefaultPostMaxMemory, false)
 }
 
 func (ctx *context) PostValueDefault(name string, def string) string {
@@ -614,7 +678,7 @@ func (ctx *context) FormFile(key string) (multipart.File, *multipart.FileHeader,
 	// here but do it in order to apply the post limit,
 	// the internal request.FormFile will not do it if that's filled
 	// and it's not a stream body.
-	if err := ctx.request.ParseMultipartForm(ctx.Application().ConfigurationReadOnly().GetPostMaxMemory()); err != nil {
+	if err := ctx.request.ParseMultipartForm(DefaultPostMaxMemory); err != nil {
 		return nil, nil, err
 	}
 
@@ -622,7 +686,7 @@ func (ctx *context) FormFile(key string) (multipart.File, *multipart.FileHeader,
 }
 
 func (ctx *context) UploadFormFiles(destDirectory string, before ...func(Context, *multipart.FileHeader)) (n int64, err error) {
-	err = ctx.request.ParseMultipartForm(ctx.Application().ConfigurationReadOnly().GetPostMaxMemory())
+	err = ctx.request.ParseMultipartForm(DefaultPostMaxMemory)
 	if err != nil {
 		return 0, err
 	}
@@ -694,7 +758,7 @@ func (ctx *context) SetMaxRequestBodySize(limitOverBytes int64) {
 }
 
 func (ctx *context) GetBody() ([]byte, error) {
-	return GetBody(ctx.request, ctx.Application().ConfigurationReadOnly().GetDisableBodyConsumptionOnUnmarshal())
+	return GetBody(ctx.request, false)
 }
 
 func (ctx *context) UnmarshalBody(outPtr interface{}, unMarshaller Unmarshaller) error {
@@ -852,8 +916,7 @@ func (ctx *context) GzipResponseWriter() *GzipResponseWriter {
 	if gzipResWriter, ok := ctx.writer.(*GzipResponseWriter); ok {
 		return gzipResWriter
 	}
-	gzipResWriter := acquireGzipResponseWriter()
-	gzipResWriter.BeginGzipResponse(ctx.writer)
+	gzipResWriter := AsGzipResponseWriter(ctx.writer)
 	ctx.ResetResponseWriter(gzipResWriter)
 	return gzipResWriter
 }
@@ -998,3 +1061,160 @@ func (ctx *context) JSONP(v interface{}, opts ...JSONP) (int, error) {
 	return n, err
 }
 
+func (ctx *context) XML(v interface{}, opts ...XML) (int, error) {
+	options := DefaultXMLOptions
+
+	if len(opts) > 0 {
+		options = opts[0]
+	}
+
+	ctx.ContentType(ContentXMLHeaderValue)
+
+	n, err := WriteXML(ctx.writer, v, options)
+	if err != nil {
+		ctx.StatusCode(http.StatusInternalServerError)
+		return 0, err
+	}
+
+	return n, err
+}
+
+func (ctx *context) ServeContent(content io.ReadSeeker, filename string, modifyTime time.Time, gzipCompression bool) error {
+	if modified, err := ctx.CheckIfModifiedSince(modifyTime); !modified && err == nil {
+		ctx.WriteNotModified()
+		return nil
+	}
+
+	if ctx.GetContentType() == "" {
+		ctx.ContentType(filename)
+	}
+
+	ctx.SetLastModified(modifyTime)
+	var out io.Writer
+	if gzipCompression && ctx.ClientSupportsGzip() {
+		addGzipHeaders(ctx.writer)
+
+		gzipWriter := acquireGzipWriter(ctx.writer)
+		defer releaseGzipWriter(gzipWriter)
+		out = gzipWriter
+	} else {
+		out = ctx.writer
+	}
+	_, err := io.Copy(out, content)
+	return err
+}
+
+func (ctx *context) ServeFile(filename string, gzipCompression bool) error {
+	f, err := os.Open(filename)
+	if err != nil {
+		return fmt.Errorf("%d", http.StatusNotFound)
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+	fi, _ := f.Stat()
+	if fi.IsDir() {
+		return ctx.ServeFile(path.Join(filename, "index.html"), gzipCompression)
+	}
+
+	return ctx.ServeContent(f, fi.Name(), fi.ModTime(), gzipCompression)
+}
+
+func (ctx *context) SendFile(filename string, destinationName string) error {
+	ctx.writer.Header().Set(ContentDispositionHeaderKey, "attachment;filename="+destinationName)
+	return ctx.ServeFile(filename, false)
+}
+
+func (ctx *context) SetCookie(cookie *http.Cookie, options ...CookieOption) {
+	for _, opt := range options {
+		opt(cookie)
+	}
+
+	http.SetCookie(ctx.writer, cookie)
+}
+
+func (ctx *context) SetCookieKV(name, value string, options ...CookieOption) {
+	c := &http.Cookie{}
+	c.Path = "/"
+	c.Name = name
+	c.Value = url.QueryEscape(value)
+	c.HttpOnly = true
+	c.Expires = time.Now().Add(setCookieKVExpiration)
+	c.MaxAge = int(setCookieKVExpiration.Seconds())
+	ctx.SetCookie(c, options...)
+}
+
+func (ctx *context) GetCookie(name string, options ...CookieOption) string {
+	cookie, err := ctx.request.Cookie(name)
+	if err != nil {
+		return ""
+	}
+
+	for _, opt := range options {
+		opt(cookie)
+	}
+
+	value, _ := url.QueryUnescape(cookie.Value)
+	return value
+}
+
+func (ctx *context) RemoveCookie(name string, options ...CookieOption) {
+	c := &http.Cookie{}
+	c.Name = name
+	c.Value = ""
+	c.Path = "/"
+	c.HttpOnly = true
+	exp := time.Now().Add(-time.Duration(1) * time.Minute)
+	c.Expires = exp
+	c.MaxAge = -1
+	ctx.SetCookie(c, options...)
+	ctx.request.Header.Set("Cookie", "")
+}
+
+func (ctx *context) VisitAllCookies(visitor func(name string, value string)) {
+	for _, cookie := range ctx.request.Cookies() {
+		visitor(cookie.Name, cookie.Value)
+	}
+}
+
+func (ctx *context) MaxAge() int64 {
+	header := ctx.GetHeader(CacheControlHeaderKey)
+	if header == "" {
+		return -1
+	}
+	m := maxAgeExp.FindStringSubmatch(header)
+	if len(m) == 2 {
+		if v, err := strconv.Atoi(m[1]); err == nil {
+			return int64(v)
+		}
+	}
+	return -1
+}
+
+func (ctx *context) Push() {
+	if w, ok := ctx.writer.(*responseWriter); ok {
+		recorder := acquireResponsePusher()
+		recorder.Begin(w)
+		ctx.ResetResponseWriter(recorder)
+	}
+}
+
+func (ctx *context) Pusher() *ResponsePusher {
+	ctx.Push()
+	return ctx.writer.(*ResponsePusher)
+}
+
+func (ctx *context) IsPushing() (*ResponsePusher, bool) {
+	rr, ok := ctx.writer.(*ResponsePusher)
+	return rr, ok
+}
+
+type BodyDecoder interface {
+	Decode(data []byte) error
+}
+
+type UnMarshallerFunc func(data []byte, outPtr interface{}) error
+
+func (u UnMarshallerFunc) Unmarshal(data []byte, v interface{}) error {
+	return u(data, v)
+}

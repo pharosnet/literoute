@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+var setCookieKVExpiration = time.Duration(8760) * time.Hour
 type CookieOption func(*http.Cookie)
 
 func CookiePath(path string) CookieOption {

@@ -20,18 +20,18 @@ const (
 	ContentBinaryHeaderValue        = "application/octet-stream"
 	ContentHTMLHeaderValue          = "text/html"
 	ContentJSONHeaderValue          = "application/json"
-	ContentJSONProblemHeaderValue   = "application/problem+json"
-	ContentXMLProblemHeaderValue    = "application/problem+xml"
 	ContentJavascriptHeaderValue    = "application/javascript"
 	ContentTextHeaderValue          = "text/plain"
 	ContentXMLHeaderValue           = "text/xml"
 	ContentXMLUnreadableHeaderValue = "application/xml"
-	ContentMarkdownHeaderValue      = "text/markdown"
-	ContentYAMLHeaderValue          = "application/x-yaml"
 	ContentFormHeaderValue          = "application/x-www-form-urlencoded"
 	ContentFormMultipartHeaderValue = "multipart/form-data"
 
 	xForwardedForHeaderKey = "X-Forwarded-For"
+	XRealIp                = "X-Real-Ip"
+	CfConnectingIp         = "CF-Connecting-IP"
+
+	DefaultPostMaxMemory = 32 << 20
 )
 
 var (
@@ -45,19 +45,14 @@ var (
 	andHex = []byte("\\u0026")
 	and    = []byte("&")
 
-	isMobileRegex = regexp.MustCompile(`(?i)(android|avantgo|blackberry|bolt|boost|cricket|docomo|fone|hiptop|mini|mobi|palm|phone|pie|tablet|up\.browser|up\.link|webos|wos)`)
-
 	finishCallbackB = []byte(");")
+
+	isMobileRegex = regexp.MustCompile(`(?i)(android|avantgo|blackberry|bolt|boost|cricket|docomo|fone|hiptop|mini|mobi|palm|phone|pie|tablet|up\.browser|up\.link|webos|wos)`)
+	maxAgeExp     = regexp.MustCompile(`maxage=(\d+)`)
 )
 
-var ErrNotFound = errors.New("not found")
-
-var ErrPreconditionFailed = errors.New("precondition failed")
-
-var ErrGzipNotSupported = errors.New("client does not support gzip compression")
-
-type UnMarshallerFunc func(data []byte, outPtr interface{}) error
-
-func (u UnMarshallerFunc) Unmarshal(data []byte, v interface{}) error {
-	return u(data, v)
-}
+var (
+	ErrNotFound           = errors.New("not found")
+	ErrPreconditionFailed = errors.New("precondition failed")
+	ErrGzipNotSupported   = errors.New("client does not support gzip compression")
+)

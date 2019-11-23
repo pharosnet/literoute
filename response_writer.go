@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"sync"
 )
 
 type ResponseWriter interface {
@@ -18,10 +17,6 @@ type ResponseWriter interface {
 	http.Pusher
 
 	Naive() http.ResponseWriter
-
-	BeginResponse(http.ResponseWriter)
-
-	EndResponse()
 
 	IsHijacked() bool
 
@@ -39,6 +34,8 @@ type ResponseWriter interface {
 	GetBeforeFlush() func()
 	FlushResponse()
 
+	EndResponse()
+
 	Clone() ResponseWriter
 
 	WriteTo(ResponseWriter)
@@ -48,15 +45,15 @@ type ResponseWriter interface {
 	CloseNotifier() (http.CloseNotifier, bool)
 }
 
-var rpool = sync.Pool{New: func() interface{} { return &responseWriter{} }}
-
-func acquireResponseWriter() ResponseWriter {
-	return rpool.Get().(*responseWriter)
+func asResponseWriter(w http.ResponseWriter) ResponseWriter {
+	return &responseWriter{
+		ResponseWriter: w,
+		statusCode:     defaultStatusCode,
+		written:        NoWritten,
+		beforeFlush:    nil,
+	}
 }
 
-func releaseResponseWriter(w ResponseWriter) {
-	rpool.Put(w)
-}
 
 type responseWriter struct {
 	http.ResponseWriter
@@ -77,15 +74,15 @@ func (w *responseWriter) Naive() http.ResponseWriter {
 	return w.ResponseWriter
 }
 
-func (w *responseWriter) BeginResponse(underline http.ResponseWriter) {
-	w.beforeFlush = nil
-	w.written = NoWritten
-	w.statusCode = defaultStatusCode
-	w.ResponseWriter = underline
-}
-
+//func (w *responseWriter) BeginResponse(underline http.ResponseWriter) {
+//	w.beforeFlush = nil
+//	w.written = NoWritten
+//	w.statusCode = defaultStatusCode
+//	w.ResponseWriter = underline
+//}
+//
 func (w *responseWriter) EndResponse() {
-	releaseResponseWriter(w)
+
 }
 
 func (w *responseWriter) SetWritten(n int) {

@@ -3,6 +3,7 @@ package literoute
 import (
 	"compress/gzip"
 	"fmt"
+	"github.com/pharosnet/literoute/bytebuffer"
 	"io"
 	"sync"
 )
@@ -45,40 +46,36 @@ func writeGzip(w io.Writer, b []byte) (int, error) {
 	return n, err
 }
 
-var gzpool = sync.Pool{New: func() interface{} { return &GzipResponseWriter{} }}
-
-func acquireGzipResponseWriter() *GzipResponseWriter {
-	w := gzpool.Get().(*GzipResponseWriter)
-	return w
-}
-
-func releaseGzipResponseWriter(w *GzipResponseWriter) {
-	gzpool.Put(w)
+func AsGzipResponseWriter(w ResponseWriter) *GzipResponseWriter {
+	return &GzipResponseWriter{
+		ResponseWriter: w,
+		chunks:         bytebuffer.Get(),
+		disabled:       false,
+	}
 }
 
 type GzipResponseWriter struct {
 	ResponseWriter
-	chunks   []byte
+	chunks   *bytebuffer.ByteBuffer
 	disabled bool
 }
 
 var _ ResponseWriter = (*GzipResponseWriter)(nil)
 
-func (w *GzipResponseWriter) BeginGzipResponse(underline ResponseWriter) {
-	w.ResponseWriter = underline
-
-	w.chunks = w.chunks[0:0]
-	w.disabled = false
-}
+//func (w *GzipResponseWriter) BeginGzipResponse(underline ResponseWriter) {
+//	w.ResponseWriter = underline
+//
+//	w.chunks = w.chunks[0:0]
+//	w.disabled = false
+//}
 
 func (w *GzipResponseWriter) EndResponse() {
-	releaseGzipResponseWriter(w)
+	bytebuffer.Put(w.chunks)
 	w.ResponseWriter.EndResponse()
 }
 
 func (w *GzipResponseWriter) Write(contents []byte) (int, error) {
-	w.chunks = append(w.chunks, contents...)
-	return len(contents), nil
+	return w.chunks.Write(contents)
 }
 
 func (w *GzipResponseWriter) Writef(format string, a ...interface{}) (n int, err error) {
@@ -118,12 +115,13 @@ func addGzipHeaders(w ResponseWriter) {
 }
 
 func (w *GzipResponseWriter) FlushResponse() {
-	_, _ = w.WriteNow(w.chunks)
+	_, _ = w.WriteNow(w.chunks.Bytes())
 	w.ResponseWriter.FlushResponse()
+
 }
 
 func (w *GzipResponseWriter) ResetBody() {
-	w.chunks = w.chunks[0:0]
+	w.chunks.Reset()
 }
 
 func (w *GzipResponseWriter) Disable() {
