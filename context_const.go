@@ -26,3 +26,15 @@ const (
 	ContentFormHeaderValue          = "application/x-www-form-urlencoded"
 	ContentFormMultipartHeaderValue = "multipart/form-data"
 )
+
+var (
+	newLineB = []byte("\n")
+	ltHex = []byte("\\u003c")
+	lt    = []byte("<")
+
+	gtHex = []byte("\\u003e")
+	gt    = []byte(">")
+
+	andHex = []byte("\\u0026")
+	and    = []byte("&")
+)
