@@ -1,5 +1,10 @@
 package literoute
 
+import (
+	"errors"
+	"regexp"
+)
+
 const (
 	ContentTypeHeaderKey            = "Content-Type"
 	LastModifiedHeaderKey           = "Last-Modified"
@@ -25,16 +30,29 @@ const (
 	ContentYAMLHeaderValue          = "application/x-yaml"
 	ContentFormHeaderValue          = "application/x-www-form-urlencoded"
 	ContentFormMultipartHeaderValue = "multipart/form-data"
+
+	xForwardedForHeaderKey = "X-Forwarded-For"
 )
 
 var (
 	newLineB = []byte("\n")
-	ltHex = []byte("\\u003c")
-	lt    = []byte("<")
+	ltHex    = []byte("\\u003c")
+	lt       = []byte("<")
 
 	gtHex = []byte("\\u003e")
 	gt    = []byte(">")
 
-	andHex = []byte("\\u0026")
-	and    = []byte("&")
+	andHex        = []byte("\\u0026")
+	and           = []byte("&")
+
+	isMobileRegex = regexp.MustCompile(`(?i)(android|avantgo|blackberry|bolt|boost|cricket|docomo|fone|hiptop|mini|mobi|palm|phone|pie|tablet|up\.browser|up\.link|webos|wos)`)
 )
+
+var ErrNotFound = errors.New("not found")
+
+
+type UnMarshallerFunc func(data []byte, outPtr interface{}) error
+
+func (u UnMarshallerFunc) Unmarshal(data []byte, v interface{}) error {
+	return u(data, v)
+}
