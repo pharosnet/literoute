@@ -10,12 +10,9 @@ import (
 
 
 const (
-	//PARAM value store in Atts if the route have parameters
-	param = 2
-	//SUB value store in Atts if the route is a sub router
-	sub = 4
-
-	contextKey = "_lite_route"
+	tokenParam = 2
+	tokenSub = 4
+	contextKey = "a_lite_route"
 )
 
 type token struct {
@@ -65,7 +62,7 @@ func (r *route) save() {
 					}
 				}
 				r.Pattern[i] = s
-				r.Attrs |= param
+				r.Attrs |= tokenParam
 			} else{
 				r.Token.raw = append(r.Token.raw, i)
 			}
@@ -103,7 +100,7 @@ func (r *route) matchAndParse(req *http.Request) (bool, map[string]string) {
 
 func (r *route) parse(rw http.ResponseWriter, req *http.Request) bool {
 	if r.Attrs != 0 {
-		if r.Attrs&sub != 0 {
+		if r.Attrs&tokenSub != 0 {
 			if len(req.URL.Path) >= r.Size {
 				if req.URL.Path[:r.Size] == r.Path {
 					req.URL.Path = req.URL.Path[r.Size:]
@@ -145,7 +142,7 @@ func (r *route) matchRawTokens(ss *[]string) bool {
 
 func (r *route) exists(rw http.ResponseWriter, req *http.Request) bool {
 	if r.Attrs != 0 {
-		if r.Attrs&sub != 0 {
+		if r.Attrs&tokenSub != 0 {
 			if len(req.URL.Path) >= r.Size {
 				if req.URL.Path[:r.Size] == r.Path {
 					return true
