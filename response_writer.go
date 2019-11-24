@@ -57,15 +57,6 @@ func releaseResponseWriter(w ResponseWriter) {
 	rpool.Put(w)
 }
 
-//func asResponseWriter(w http.ResponseWriter) ResponseWriter {
-//	return &responseWriter{
-//		ResponseWriter: w,
-//		statusCode:     defaultStatusCode,
-//		written:        NoWritten,
-//		beforeFlush:    nil,
-//	}
-//}
-
 type responseWriter struct {
 	http.ResponseWriter
 	statusCode  int
