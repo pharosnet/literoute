@@ -38,13 +38,13 @@ type Context interface {
 	IsAjax() bool
 
 	IsMobile() bool
-	Header(name string, value string)
+	Header(name string, value string) Context
 
-	ContentType(cType string)
+	ContentType(cType string) Context
 	GetContentType() string
 	GetContentTypeRequested() string
 	GetContentLength() int64
-	StatusCode(statusCode int)
+	StatusCode(statusCode int) Context
 	GetStatusCode() int
 
 	AbsoluteURI(s string) string
@@ -290,7 +290,6 @@ func (ctx *context) RemoteAddr(headerNames ...string) string {
 
 	addr := strings.TrimSpace(ctx.request.RemoteAddr)
 	if addr != "" {
-		// if addr has port use the net.SplitHostPort otherwise(error occurs) take as it is
 		if ip, _, err := net.SplitHostPort(addr); err == nil {
 			return ip
 		}
@@ -338,7 +337,6 @@ func (ctx *context) AbsoluteURI(s string) string {
 				s, query = s[:i], s[i:]
 			}
 
-			// clean up but preserve trailing slash
 			trailing := strings.HasSuffix(s, "/")
 			s = path.Clean(s)
 			if trailing && !strings.HasSuffix(s, "/") {
@@ -360,12 +358,13 @@ func (ctx *context) IsMobile() bool {
 	return isMobileRegex.MatchString(s)
 }
 
-func (ctx *context) Header(name string, value string) {
+func (ctx *context) Header(name string, value string) Context {
 	if value == "" {
 		ctx.writer.Header().Del(name)
-		return
+		return ctx
 	}
 	ctx.writer.Header().Add(name, value)
+	return ctx
 }
 
 func (ctx *context) contentTypeOnce(cType string, charset string) {
@@ -376,9 +375,9 @@ func (ctx *context) contentTypeOnce(cType string, charset string) {
 	ctx.writer.Header().Set(ContentTypeHeaderKey, cType)
 }
 
-func (ctx *context) ContentType(cType string) {
+func (ctx *context) ContentType(cType string) Context {
 	if cType == "" {
-		return
+		return ctx
 	}
 
 	if strings.Contains(cType, ".") {
@@ -392,6 +391,8 @@ func (ctx *context) ContentType(cType string) {
 	}
 
 	ctx.writer.Header().Set(ContentTypeHeaderKey, cType)
+
+	return ctx
 }
 
 func (ctx *context) GetContentType() string {
@@ -410,8 +411,9 @@ func (ctx *context) GetContentLength() int64 {
 	return 0
 }
 
-func (ctx *context) StatusCode(statusCode int) {
+func (ctx *context) StatusCode(statusCode int) Context {
 	ctx.writer.WriteHeader(statusCode)
+	return ctx
 }
 
 func (ctx *context) NotFound() {
@@ -778,10 +780,6 @@ func (ctx *context) UnmarshalBody(outPtr interface{}, unMarshaller Unmarshaller)
 	return unMarshaller.Unmarshal(rawData, outPtr)
 }
 
-//func (ctx *context) shouldOptimize() bool {
-//	return ctx.Application().ConfigurationReadOnly().GetEnableOptimizations()
-//}
-
 func (ctx *context) ReadJSON(outPtr interface{}) error {
 	return ctx.UnmarshalBody(outPtr, UnMarshallerFunc(json.Unmarshal))
 }
@@ -820,9 +818,9 @@ func (ctx *context) WriteString(body string) (n int, err error) {
 	return ctx.writer.WriteString(body)
 }
 
-func (ctx *context) SetLastModified(modtime time.Time) {
-	if !IsZeroTime(modtime) {
-		ctx.Header(LastModifiedHeaderKey, FormatTimeRFC3339Nano(ctx, modtime.UTC()))
+func (ctx *context) SetLastModified(modifyTime time.Time) {
+	if !IsZeroTime(modifyTime) {
+		ctx.Header(LastModifiedHeaderKey, FormatTimeRFC3339Nano(modifyTime.UTC()))
 	}
 }
 

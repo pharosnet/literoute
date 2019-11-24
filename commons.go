@@ -168,11 +168,11 @@ var ParseTimeRFC3339Nano = func(ctx Context, text string) (t time.Time, err erro
 	return
 }
 
-var FormatTimeRFC3339 = func(ctx Context, t time.Time) string {
+func FormatTimeRFC3339(t time.Time) string {
 	return t.Format(time.RFC3339)
 }
 
-var FormatTimeRFC3339Nano = func(ctx Context, t time.Time) string {
+func FormatTimeRFC3339Nano(t time.Time) string {
 	return t.Format(time.RFC3339Nano)
 }
 
