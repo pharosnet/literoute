@@ -6,11 +6,12 @@ import (
 
 func New(config Config) (mux *LiteMux) {
 	mux = &LiteMux{
-		config:         config,
-		routes:         make(map[string][]*route),
-		validators:     make(map[string]Validator),
-		middlewareList: make([]Middleware, 0, 1),
-		middlewareNum:  0,
+		config:           config,
+		routes:           make(map[string][]*route),
+		validators:       make(map[string]Validator),
+		middlewareList:   make([]Middleware, 0, 1),
+		middlewareNum:    0,
+		extraBodyEncoder: nil,
 	}
 	mux.rootRouter = newRouter("/", mux)
 	return
@@ -56,13 +57,14 @@ var DefaultConfig = Config{
 }
 
 type LiteMux struct {
-	config         Config
-	rootRouter     *Router
-	routes         map[string][]*route
-	notFound       HandleFunc
-	validators     map[string]Validator
-	middlewareNum  int
-	middlewareList []Middleware
+	config           Config
+	rootRouter       *Router
+	routes           map[string][]*route
+	notFound         HandleFunc
+	validators       map[string]Validator
+	middlewareNum    int
+	middlewareList   []Middleware
+	extraBodyEncoder BodyEncoder
 }
 
 func (m *LiteMux) AppendMiddleware(mid Middleware) {
@@ -75,6 +77,14 @@ func (m *LiteMux) RegisterValidator(name string, validator Validator) {
 		m.validators = make(map[string]Validator)
 	}
 	m.validators[name] = validator
+}
+
+func (m *LiteMux) RegisterBodyEncode(encode BodyEncoder) {
+	m.extraBodyEncoder = encode
+}
+
+func (m *LiteMux) getExtraBodyEncoder() BodyEncoder {
+	return m.extraBodyEncoder
 }
 
 func (m *LiteMux) getConfig() Config {

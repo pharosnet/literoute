@@ -470,6 +470,12 @@ func (ctx *context) op(status int, v interface{}) {
 		_, _ = ctx.JSON(v)
 	case XmlBodyEncode:
 		_, _ = ctx.XML(v)
+	default:
+		encoder := ctx.Mux().getExtraBodyEncoder()
+		if encoder == nil {
+			panic("write failed, no body encoder")
+		}
+		encoder.Encode(v)
 	}
 }
 
@@ -1267,6 +1273,10 @@ func (ctx *context) IsPushing() (*ResponsePusher, bool) {
 
 type BodyDecoder interface {
 	Decode(data []byte) error
+}
+
+type BodyEncoder interface {
+	Encode(v interface{}) []byte
 }
 
 type UnMarshallerFunc func(data []byte, outPtr interface{}) error
