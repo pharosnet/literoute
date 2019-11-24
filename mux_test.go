@@ -9,7 +9,16 @@ import (
 
 func TestNew(t *testing.T) {
 
-	mux := New()
+	mux := New(Config{
+		BodyEncoder: JsonBodyEncode,
+		Status: CustomizeStatus{
+			Succeed:        200,
+			Fail:           555,
+			NotFound:       444,
+			InvalidRequest: 440,
+		},
+		PostMaxMemory: DefaultPostMaxMemory,
+	})
 
 	mux.AppendMiddleware(&LogMid{})
 
@@ -37,14 +46,13 @@ func Todo(ctx Context) {
 	log.Println(ctx.JSON(TodoV{
 		Id:   "1",
 		Name: ctx.Param("name"),
-		Time:UnixEpochTime,
+		Time: UnixEpochTime,
 	}))
 }
 
 type LogMid struct {
-
 }
 
-func (m *LogMid) Handle(ctx Context)  {
+func (m *LogMid) Handle(ctx Context) {
 	log.Println(ctx)
 }

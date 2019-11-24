@@ -24,6 +24,7 @@ import (
 )
 
 type Context interface {
+	Mux() *LiteMux
 	Request() (r *http.Request)
 	ResponseWriter() ResponseWriter
 	ResetResponseWriter(ResponseWriter)
@@ -188,10 +189,16 @@ type Unmarshaller interface {
 
 var _ Context = (*context)(nil)
 
-var contextPool = sync.Pool{New: func() interface{} { return newContext() }}
+var contextPool = sync.Pool{}
 
-func acquireContext(w http.ResponseWriter, r *http.Request) Context {
-	ctx := contextPool.Get().(Context)
+func acquireContext(mux *LiteMux, w http.ResponseWriter, r *http.Request) Context {
+	var ctx Context
+	v := contextPool.Get()
+	if v == nil {
+		ctx = newContext(mux)
+	} else {
+		ctx, _ = v.(Context)
+	}
 	ctx.BeginRequest(w, r)
 	return ctx
 }
@@ -201,15 +208,17 @@ func releaseContext(ctx Context) {
 	contextPool.Put(ctx)
 }
 
-func newContext() (ctx Context) {
+func newContext(mux *LiteMux) (ctx Context) {
 	ctx = &context{
-		id: LastCapturedContextID(),
+		id:  LastCapturedContextID(),
+		mux: mux,
 	}
 	return
 }
 
 type context struct {
 	id      uint64
+	mux     *LiteMux
 	writer  ResponseWriter
 	request *http.Request
 }
@@ -222,6 +231,10 @@ func (ctx *context) String() string {
 
 	return fmt.Sprintf("[%d] %s ▶ %s:%s",
 		ctx.id, ctx.RemoteAddr(), ctx.Method(), ctx.Request().RequestURI)
+}
+
+func (ctx *context) Mux() *LiteMux {
+	return ctx.mux
 }
 
 func (ctx *context) BeginRequest(w http.ResponseWriter, r *http.Request) () {
@@ -593,7 +606,7 @@ func (ctx *context) FormValues() map[string][]string {
 }
 
 func (ctx *context) form() (form map[string][]string, found bool) {
-	return GetForm(ctx.request, DefaultPostMaxMemory, false)
+	return GetForm(ctx.request, ctx.Mux().getPostMaxMemory(), false)
 }
 
 func (ctx *context) PostValueDefault(name string, def string) string {
@@ -675,12 +688,7 @@ func (ctx *context) PostValues(name string) []string {
 }
 
 func (ctx *context) FormFile(key string) (multipart.File, *multipart.FileHeader, error) {
-	// we don't have access to see if the request is body stream
-	// and then the ParseMultipartForm can be useless
-	// here but do it in order to apply the post limit,
-	// the internal request.FormFile will not do it if that's filled
-	// and it's not a stream body.
-	if err := ctx.request.ParseMultipartForm(DefaultPostMaxMemory); err != nil {
+	if err := ctx.request.ParseMultipartForm(ctx.Mux().getPostMaxMemory()); err != nil {
 		return nil, nil, err
 	}
 
@@ -688,7 +696,7 @@ func (ctx *context) FormFile(key string) (multipart.File, *multipart.FileHeader,
 }
 
 func (ctx *context) UploadFormFiles(destDirectory string, before ...func(Context, *multipart.FileHeader)) (n int64, err error) {
-	err = ctx.request.ParseMultipartForm(DefaultPostMaxMemory)
+	err = ctx.request.ParseMultipartForm(ctx.Mux().getPostMaxMemory())
 	if err != nil {
 		return 0, err
 	}

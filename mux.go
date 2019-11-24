@@ -4,15 +4,20 @@ import (
 	"net/http"
 )
 
-func New() (mux *LiteMux) {
+func New(config Config) (mux *LiteMux) {
 	mux = &LiteMux{
-		routes:        make(map[string][]*route),
-		validators:    make(map[string]Validator),
-		middlewares:   make([]Middleware, 0, 1),
-		middlewareNum: 0,
+		config:         config,
+		routes:         make(map[string][]*route),
+		validators:     make(map[string]Validator),
+		middlewareList: make([]Middleware, 0, 1),
+		middlewareNum:  0,
 	}
 	mux.rootRouter = newRouter("/", mux)
 	return
+}
+
+func Default() (mux *LiteMux) {
+	return New(DefaultConfig)
 }
 
 var (
@@ -21,18 +26,48 @@ var (
 	methods  = []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodHead, http.MethodPatch, http.MethodOptions, http.MethodConnect, http.MethodTrace}
 )
 
+const (
+	JsonBodyEncode = iota
+	XmlBodyEncode
+)
+
+type Config struct {
+	BodyEncoder   int
+	Status        CustomizeStatus
+	PostMaxMemory int64
+}
+
+type CustomizeStatus struct {
+	Succeed        int
+	Fail           int
+	NotFound       int
+	InvalidRequest int
+}
+
+var DefaultConfig = Config{
+	BodyEncoder: JsonBodyEncode,
+	Status: CustomizeStatus{
+		Succeed:        200,
+		Fail:           555,
+		NotFound:       444,
+		InvalidRequest: 440,
+	},
+	PostMaxMemory: DefaultPostMaxMemory,
+}
+
 type LiteMux struct {
-	rootRouter    *Router
-	routes        map[string][]*route
-	notFound      HandleFunc
-	validators    map[string]Validator
-	middlewareNum int
-	middlewares   []Middleware
+	config         Config
+	rootRouter     *Router
+	routes         map[string][]*route
+	notFound       HandleFunc
+	validators     map[string]Validator
+	middlewareNum  int
+	middlewareList []Middleware
 }
 
 func (m *LiteMux) AppendMiddleware(mid Middleware) {
-	m.middlewares = append(m.middlewares, mid)
-	m.middlewareNum = len(m.middlewares)
+	m.middlewareList = append(m.middlewareList, mid)
+	m.middlewareNum = len(m.middlewareList)
 }
 
 func (m *LiteMux) RegisterValidator(name string, validator Validator) {
@@ -40,6 +75,10 @@ func (m *LiteMux) RegisterValidator(name string, validator Validator) {
 		m.validators = make(map[string]Validator)
 	}
 	m.validators[name] = validator
+}
+
+func (m *LiteMux) getPostMaxMemory() int64 {
+	return m.config.PostMaxMemory
 }
 
 func (m *LiteMux) parse(rw http.ResponseWriter, req *http.Request) bool {
@@ -66,7 +105,7 @@ func (m *LiteMux) staticRoute(rw http.ResponseWriter, req *http.Request) bool {
 	for _, s := range m.routes[static] {
 		if len(req.URL.Path) >= s.Size {
 			if req.URL.Path[:s.Size] == s.Path {
-				ctx := acquireContext(rw, req)
+				ctx := acquireContext(m, rw, req)
 				s.Handle(ctx)
 				releaseContext(ctx)
 				return true
@@ -105,7 +144,7 @@ func (m *LiteMux) otherMethods(rw http.ResponseWriter, req *http.Request) bool {
 
 func (m *LiteMux) handleNotFound(rw http.ResponseWriter, req *http.Request) {
 	if m.notFound != nil {
-		ctx := acquireContext(rw, req)
+		ctx := acquireContext(m, rw, req)
 		m.notFound(ctx)
 		releaseContext(ctx)
 	} else {
@@ -115,7 +154,7 @@ func (m *LiteMux) handleNotFound(rw http.ResponseWriter, req *http.Request) {
 
 func (m *LiteMux) handleMiddleware(ctx Context) {
 	if m.middlewareNum > 0 {
-		for _, mid := range m.middlewares {
+		for _, mid := range m.middlewareList {
 			mid.Handle(ctx)
 		}
 	}

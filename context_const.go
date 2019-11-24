@@ -31,7 +31,7 @@ const (
 	XRealIp                = "X-Real-Ip"
 	CfConnectingIp         = "CF-Connecting-IP"
 
-	DefaultPostMaxMemory = 32 << 20
+	DefaultPostMaxMemory = 32 << 20 // 32MB
 )
 
 var (
