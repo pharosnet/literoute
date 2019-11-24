@@ -152,12 +152,15 @@ func (m *LiteMux) handleNotFound(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (m *LiteMux) handleMiddleware(ctx Context) {
+func (m *LiteMux) handleMiddleware(ctx Context) bool {
 	if m.middlewareNum > 0 {
 		for _, mid := range m.middlewareList {
-			mid.Handle(ctx)
+			if !mid.Handle(ctx) {
+				return false
+			}
 		}
 	}
+	return true
 }
 
 func (m *LiteMux) serve(rw http.ResponseWriter, req *http.Request) {

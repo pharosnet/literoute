@@ -53,7 +53,10 @@ func Todo(ctx Context) {
 type LogMid struct {
 }
 
-func (m *LogMid) Handle(ctx Context) {
+func (m *LogMid) Handle(ctx Context) bool {
 	log.Println(ctx)
-	ctx.End()
+	//ctx.Fail(map[string]time.Time{
+	//	"fail":time.Now(),
+	//})
+	return false
 }

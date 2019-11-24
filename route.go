@@ -39,7 +39,10 @@ type route struct {
 
 func (r *route) handle(rw http.ResponseWriter, req *http.Request) {
 	ctx := acquireContext(r.mux, rw, req)
-	r.mux.handleMiddleware(ctx)
+	if !r.mux.handleMiddleware(ctx) {
+		releaseContext(ctx)
+		return
+	}
 	r.Handle(ctx)
 	releaseContext(ctx)
 }

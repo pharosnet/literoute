@@ -1,7 +1,5 @@
 package literoute
 
 type Middleware interface {
-	Handle(ctx Context)
+	Handle(ctx Context) bool
 }
-
-

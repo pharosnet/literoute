@@ -241,7 +241,8 @@ func (ctx *context) Mux() *LiteMux {
 }
 
 func (ctx *context) BeginRequest(w http.ResponseWriter, r *http.Request) () {
-	ctx.writer = asResponseWriter(w)
+	ctx.writer = acquireResponseWriter()
+	ctx.writer.BeginResponse(w)
 	ctx.request = r
 }
 
