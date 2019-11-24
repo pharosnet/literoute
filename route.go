@@ -4,7 +4,6 @@ import (
 	context0 "context"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 )
 
@@ -27,18 +26,22 @@ func newRoute(mux *LiteMux, url string, h HandleFunc) *route {
 }
 
 type route struct {
-	Path   string
-	Method string
-	Size   int
-	Attrs  int
-	//wildPos    int
+	Path       string
+	Method     string
+	Size       int
+	Attrs      int
 	Token      token
 	Pattern    map[int]string
-	Compile    map[int]*regexp.Regexp
-	Tag        map[int]string
 	Handle     HandleFunc
 	mux        *LiteMux
 	validators map[string][]string
+}
+
+func (r *route) handle(rw http.ResponseWriter, req *http.Request) {
+	ctx := acquireContext(rw, req)
+	r.mux.handleMiddleware(ctx)
+	r.Handle(ctx)
+	releaseContext(ctx)
 }
 
 func (r *route) save() {
@@ -70,7 +73,7 @@ func (r *route) save() {
 	}
 }
 
-func (r *route) Match(req *http.Request) bool {
+func (r *route) match(req *http.Request) bool {
 	ok, _ := r.matchAndParse(req)
 	return ok
 }
@@ -103,9 +106,7 @@ func (r *route) parse(rw http.ResponseWriter, req *http.Request) bool {
 			if len(req.URL.Path) >= r.Size {
 				if req.URL.Path[:r.Size] == r.Path {
 					req.URL.Path = req.URL.Path[r.Size:]
-					ctx := acquireContext(rw, req)
-					r.Handle(ctx)
-					releaseContext(ctx)
+					r.handle(rw, req)
 					return true
 				}
 			}
@@ -114,16 +115,12 @@ func (r *route) parse(rw http.ResponseWriter, req *http.Request) bool {
 		if ok, vars := r.matchAndParse(req); ok {
 			ctx0 := context0.WithValue(req.Context(), contextKey, vars)
 			newReq := req.WithContext(ctx0)
-			ctx := acquireContext(rw, newReq)
-			r.Handle(ctx)
-			releaseContext(ctx)
+			r.handle(rw, newReq)
 			return true
 		}
 	}
 	if req.URL.Path == r.Path {
-		ctx := acquireContext(rw, req)
-		r.Handle(ctx)
-		releaseContext(ctx)
+		r.handle(rw, req)
 		return true
 	}
 	return false

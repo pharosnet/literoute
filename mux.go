@@ -6,8 +6,10 @@ import (
 
 func New() (mux *LiteMux) {
 	mux = &LiteMux{
-		routes:     make(map[string][]*route),
-		validators: make(map[string]Validator),
+		routes:        make(map[string][]*route),
+		validators:    make(map[string]Validator),
+		middlewares:   make([]Middleware, 0, 1),
+		middlewareNum: 0,
 	}
 	mux.rootRouter = newRouter("/", mux)
 	return
@@ -20,10 +22,17 @@ var (
 )
 
 type LiteMux struct {
-	rootRouter *Router
-	routes     map[string][]*route
-	notFound   HandleFunc
-	validators map[string]Validator
+	rootRouter    *Router
+	routes        map[string][]*route
+	notFound      HandleFunc
+	validators    map[string]Validator
+	middlewareNum int
+	middlewares   []Middleware
+}
+
+func (m *LiteMux) AppendMiddleware(mid Middleware) {
+	m.middlewares = append(m.middlewares, mid)
+	m.middlewareNum = len(m.middlewares)
 }
 
 func (m *LiteMux) RegisterValidator(name string, validator Validator) {
@@ -101,6 +110,14 @@ func (m *LiteMux) handleNotFound(rw http.ResponseWriter, req *http.Request) {
 		releaseContext(ctx)
 	} else {
 		http.NotFound(rw, req)
+	}
+}
+
+func (m *LiteMux) handleMiddleware(ctx Context) {
+	if m.middlewareNum > 0 {
+		for _, mid := range m.middlewares {
+			mid.Handle(ctx)
+		}
 	}
 }
 
