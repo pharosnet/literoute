@@ -43,11 +43,11 @@ type TodoV struct {
 }
 
 func Todo(ctx Context) {
-	log.Println(ctx.JSON(TodoV{
+	ctx.Fail(TodoV{
 		Id:   "1",
 		Name: ctx.Param("name"),
-		Time: UnixEpochTime,
-	}))
+		Time: time.Now(),
+	})
 }
 
 type LogMid struct {
@@ -55,4 +55,5 @@ type LogMid struct {
 
 func (m *LogMid) Handle(ctx Context) {
 	log.Println(ctx)
+	ctx.End()
 }

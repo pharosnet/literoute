@@ -89,7 +89,10 @@ type Context interface {
 	FormFile(key string) (multipart.File, *multipart.FileHeader, error)
 	UploadFormFiles(destDirectory string, before ...func(Context, *multipart.FileHeader)) (n int64, err error)
 
+	Succeed(v interface{})
 	NotFound()
+	Fail(v interface{})
+	Invalid(v interface{})
 
 	SetMaxRequestBodySize(limitOverBytes int64)
 
@@ -429,8 +432,54 @@ func (ctx *context) StatusCode(statusCode int) Context {
 	return ctx
 }
 
+func (ctx *context) Succeed(v interface{}) {
+	ctx.op(func() int {
+		if status := ctx.Mux().getConfig().Status.Succeed; status == 0 {
+			return http.StatusOK
+		} else {
+			return status
+		}
+	}(), v)
+}
+
+func (ctx *context) Fail(v interface{}) {
+	ctx.op(func() int {
+		if status := ctx.Mux().getConfig().Status.Fail; status == 0 {
+			return http.StatusInternalServerError
+		} else {
+			return status
+		}
+	}(), v)
+}
+
+func (ctx *context) Invalid(v interface{}) {
+	ctx.op(func() int {
+		if status := ctx.Mux().getConfig().Status.InvalidRequest; status == 0 {
+			return http.StatusBadRequest
+		} else {
+			return status
+		}
+	}(), v)
+}
+
+func (ctx *context) op(status int, v interface{}) {
+	ctx.StatusCode(status)
+	switch ctx.Mux().getConfig().BodyEncoder {
+	case JsonBodyEncode:
+		_, _ = ctx.JSON(v)
+	case XmlBodyEncode:
+		_, _ = ctx.XML(v)
+	}
+}
+
 func (ctx *context) NotFound() {
-	ctx.StatusCode(http.StatusNotFound)
+	ctx.StatusCode(func() int {
+		if status := ctx.Mux().getConfig().Status.NotFound; status == 0 {
+			return http.StatusNotFound
+		} else {
+			return status
+		}
+	}())
 }
 
 func (ctx *context) GetStatusCode() int {
@@ -606,7 +655,7 @@ func (ctx *context) FormValues() map[string][]string {
 }
 
 func (ctx *context) form() (form map[string][]string, found bool) {
-	return GetForm(ctx.request, ctx.Mux().getPostMaxMemory(), false)
+	return GetForm(ctx.request, ctx.Mux().getConfig().PostMaxMemory, false)
 }
 
 func (ctx *context) PostValueDefault(name string, def string) string {
@@ -688,7 +737,7 @@ func (ctx *context) PostValues(name string) []string {
 }
 
 func (ctx *context) FormFile(key string) (multipart.File, *multipart.FileHeader, error) {
-	if err := ctx.request.ParseMultipartForm(ctx.Mux().getPostMaxMemory()); err != nil {
+	if err := ctx.request.ParseMultipartForm(ctx.Mux().getConfig().PostMaxMemory); err != nil {
 		return nil, nil, err
 	}
 
@@ -696,7 +745,7 @@ func (ctx *context) FormFile(key string) (multipart.File, *multipart.FileHeader,
 }
 
 func (ctx *context) UploadFormFiles(destDirectory string, before ...func(Context, *multipart.FileHeader)) (n int64, err error) {
-	err = ctx.request.ParseMultipartForm(ctx.Mux().getPostMaxMemory())
+	err = ctx.request.ParseMultipartForm(ctx.Mux().getConfig().PostMaxMemory)
 	if err != nil {
 		return 0, err
 	}

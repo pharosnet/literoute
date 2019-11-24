@@ -77,8 +77,8 @@ func (m *LiteMux) RegisterValidator(name string, validator Validator) {
 	m.validators[name] = validator
 }
 
-func (m *LiteMux) getPostMaxMemory() int64 {
-	return m.config.PostMaxMemory
+func (m *LiteMux) getConfig() Config {
+	return m.config
 }
 
 func (m *LiteMux) parse(rw http.ResponseWriter, req *http.Request) bool {
