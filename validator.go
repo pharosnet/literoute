@@ -2,6 +2,7 @@ package literoute
 
 type Validator interface {
 	Validate(string) bool
+	OnFail(Context)
 }
 
 type validatorInfo struct {

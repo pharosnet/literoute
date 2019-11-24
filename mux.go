@@ -91,24 +91,24 @@ func (m *LiteMux) getConfig() Config {
 	return m.config
 }
 
-func (m *LiteMux) parse(rw http.ResponseWriter, req *http.Request) bool {
+func (m *LiteMux) parse(rw http.ResponseWriter, req *http.Request) (bool, int) {
 	for _, r := range m.routes[req.Method] {
-		ok := r.parse(rw, req)
+		ok, match := r.parse(rw, req)
 		if ok {
-			return true
+			return true, match
 		}
 	}
 
 	if req.Method == http.MethodHead {
 		for _, r := range m.routes[http.MethodGet] {
-			ok := r.parse(rw, req)
+			ok, match := r.parse(rw, req)
 			if ok {
-				return true
+				return true, match
 			}
 		}
 	}
 
-	return false
+	return false, matchNon
 }
 
 func (m *LiteMux) staticRoute(rw http.ResponseWriter, req *http.Request) bool {
@@ -125,15 +125,14 @@ func (m *LiteMux) staticRoute(rw http.ResponseWriter, req *http.Request) bool {
 	return false
 }
 
-func (m *LiteMux) validate(rw http.ResponseWriter, req *http.Request) bool {
+func (m *LiteMux) validate(rw http.ResponseWriter, req *http.Request) (bool, int) {
 	pathLength := len(req.URL.Path)
 	if pathLength > 1 && req.URL.Path[pathLength-1:] == "/" {
 		cleanURL(&req.URL.Path)
 		rw.Header().Set(location, req.URL.String())
 		rw.WriteHeader(http.StatusFound)
-		return true
+		return true, matchOk
 	}
-
 	return m.parse(rw, req)
 }
 
@@ -174,9 +173,9 @@ func (m *LiteMux) handleMiddleware(ctx Context) bool {
 }
 
 func (m *LiteMux) serve(rw http.ResponseWriter, req *http.Request) {
-	if !m.parse(rw, req) {
+	if _, match := m.parse(rw, req); match != matchOk && match != matchFail {
 		if !m.staticRoute(rw, req) {
-			if !m.validate(rw, req) {
+			if _, match := m.validate(rw, req); match != matchOk && match != matchFail {
 				if !m.otherMethods(rw, req) {
 					m.handleNotFound(rw, req)
 				}

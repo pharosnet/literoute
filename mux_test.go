@@ -3,6 +3,7 @@ package literoute
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -22,30 +23,63 @@ func TestNew(t *testing.T) {
 
 	mux.AppendMiddleware(&LogMid{})
 
+	mux.RegisterValidator("IsInt", &IsIntValidator{})
+
 	mux.Get("/", Root)
 
 	party := mux.Party("/todo")
 
-	party.Get("/:name", Todo)
+	party.Get("/:name|IsInt", TodoGet)
+
+	party.Get("/:name/:var", TodoVar)
 
 	log.Fatalln(http.ListenAndServe(":8080", mux))
 
 }
 
-func Root(ctx Context) {
-	log.Println(ctx.GzipResponseWriter().WriteString(FormatTimeRFC3339Nano(time.Now().UTC())))
+type IsIntValidator struct{}
+
+func (v *IsIntValidator) Validate(param string) bool {
+	if _, err := strconv.Atoi(param); err != nil {
+		return false
+	}
+	return true
 }
 
-type TodoV struct {
+func (v *IsIntValidator) OnFail(ctx Context) {
+	ctx.Fail(map[string]string{
+		"msg": "param is not int",
+	})
+}
+
+func Root(ctx Context) {
+	log.Println(
+		ctx.GzipResponseWriter().WriteString(
+			FormatTimeRFC3339Nano(time.Now().UTC()),
+		),
+	)
+}
+
+type Todo struct {
 	Id   string
 	Name string
+	Var  string
 	Time time.Time
 }
 
-func Todo(ctx Context) {
-	ctx.Fail(TodoV{
+func TodoGet(ctx Context) {
+	ctx.Fail(Todo{
 		Id:   "1",
 		Name: ctx.Param("name"),
+		Time: time.Now(),
+	})
+}
+
+func TodoVar(ctx Context) {
+	ctx.Fail(Todo{
+		Id:   "1",
+		Name: ctx.Param("name"),
+		Var:  ctx.Param("var"),
 		Time: time.Now(),
 	})
 }
@@ -58,5 +92,5 @@ func (m *LogMid) Handle(ctx Context) bool {
 	//ctx.Fail(map[string]time.Time{
 	//	"fail":time.Now(),
 	//})
-	return false
+	return true
 }

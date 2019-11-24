@@ -11,6 +11,9 @@ const (
 	tokenParam = 2
 	tokenSub   = 4
 	contextKey = "a_lite_route"
+	matchOk    = 1
+	matchNon   = 0
+	matchFail  = -1
 )
 
 type token struct {
@@ -76,12 +79,12 @@ func (r *route) save() {
 	}
 }
 
-func (r *route) match(req *http.Request) bool {
-	ok, _ := r.matchAndParse(req)
-	return ok
+func (r *route) match(rw http.ResponseWriter, req *http.Request) int {
+	mr, _ := r.matchAndParse(rw, req)
+	return mr
 }
 
-func (r *route) matchAndParse(req *http.Request) (bool, map[string]string) {
+func (r *route) matchAndParse(rw http.ResponseWriter, req *http.Request) (int, map[string]string) {
 	ss := strings.Split(req.URL.EscapedPath(), "/")
 	if r.matchRawTokens(&ss) {
 		if len(ss) == r.Token.Size {
@@ -90,43 +93,51 @@ func (r *route) matchAndParse(req *http.Request) (bool, map[string]string) {
 			for k, v := range r.Pattern {
 				if validators := r.validators[v]; validators != nil {
 					for _, validatorName := range validators {
-						if !(*r.mux).validators[validatorName].Validate(ss[k]) {
-							return false, nil
+						validator := (*r.mux).validators[validatorName]
+						if !validator.Validate(ss[k]) {
+							ctx := acquireContext(r.mux, rw, req)
+							validator.OnFail(ctx)
+							releaseContext(ctx)
+							return matchFail, nil
 						}
 					}
 				}
 				vars[v], _ = url.QueryUnescape(ss[k])
 			}
-			return true, vars
+			return matchOk, vars
 		}
 	}
-	return false, nil
+	return matchNon, nil
 }
 
-func (r *route) parse(rw http.ResponseWriter, req *http.Request) bool {
+func (r *route) parse(rw http.ResponseWriter, req *http.Request) (bool, int) {
 	if r.Attrs != 0 {
 		if r.Attrs&tokenSub != 0 {
 			if len(req.URL.Path) >= r.Size {
 				if req.URL.Path[:r.Size] == r.Path {
 					req.URL.Path = req.URL.Path[r.Size:]
 					r.handle(rw, req)
-					return true
+					return true, matchOk
 				}
 			}
 		}
 
-		if ok, vars := r.matchAndParse(req); ok {
+		if mr, vars := r.matchAndParse(rw, req); mr == matchOk {
 			ctx0 := context0.WithValue(req.Context(), contextKey, vars)
 			newReq := req.WithContext(ctx0)
 			r.handle(rw, newReq)
-			return true
+			return true, matchOk
+		} else if mr == matchFail {
+			return true, matchFail
+		} else if mr == matchNon {
+			return false, matchNon
 		}
 	}
 	if req.URL.Path == r.Path {
 		r.handle(rw, req)
-		return true
+		return true, matchOk
 	}
-	return false
+	return false, matchNon
 }
 
 func (r *route) matchRawTokens(ss *[]string) bool {
@@ -149,7 +160,7 @@ func (r *route) exists(rw http.ResponseWriter, req *http.Request) bool {
 			}
 		}
 
-		if ok, _ := r.matchAndParse(req); ok {
+		if mr, _ := r.matchAndParse(rw, req); mr == matchOk || mr == matchFail {
 			return true
 		}
 	}
